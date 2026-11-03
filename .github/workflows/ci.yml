@@ -64,7 +64,7 @@ jobs:
         with:
           fetch-depth: 0 # scan the full history, not just the last commit
       - name: gitleaks (secrets in code or history)
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: shellcheck
