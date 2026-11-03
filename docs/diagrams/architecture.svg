@@ -1,0 +1,182 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 960" width="1400" height="960" font-family="DejaVu Sans, Helvetica, Arial, sans-serif">
+<defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2d3748"/></marker></defs>
+<rect x="0" y="0" width="1400" height="960" rx="0" fill="#ffffff" stroke="#ffffff" stroke-width="1.5"/>
+<text x="20" y="34" font-size="22" font-weight="bold" fill="#1f2933" text-anchor="start">AI Support Agent — customer deployment architecture (AWS)</text>
+<text x="20" y="56" font-size="13" font-weight="normal" fill="#52606d" text-anchor="start">Everything inside the orange boundary is owned by the customer. No component has a public IP or internet-facing listener.</text>
+<rect x="880" y="70" width="330" height="50" rx="10" fill="#f2f0fb" stroke="#6b46c1" stroke-width="1.5"/>
+<rect x="880" y="70" width="6" height="50" rx="3" fill="#6b46c1"/>
+<text x="894" y="92" font-size="14" font-weight="bold" fill="#1f2933" text-anchor="start">LLM provider API</text>
+<text x="894" y="111" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">api.anthropic.com:443 · public internet</text>
+<rect x="250" y="140" width="1130" height="800" rx="14" fill="#fff8eb" stroke="#d69e2e" stroke-width="2"/>
+<text x="266" y="162" font-size="14" font-weight="bold" fill="#975a16" text-anchor="start">Customer AWS account · us-east-1  (simulated customer environment)</text>
+<rect x="270" y="180" width="640" height="730" rx="12" fill="#eef6ff" stroke="#2b6cb0" stroke-width="2"/>
+<text x="286" y="202" font-size="13" font-weight="bold" fill="#2b6cb0" text-anchor="start">Customer VPC 10.40.0.0/16 · 2 AZs · flow logs → CloudWatch</text>
+<rect x="735" y="166" width="120" height="28" rx="6" fill="#ffffff" stroke="#2b6cb0" stroke-width="1.5"/>
+<text x="795" y="185" font-size="12" font-weight="bold" fill="#1f2933" text-anchor="middle">Internet GW</text>
+<rect x="290" y="215" width="600" height="80" rx="8" fill="#fdecec" stroke="#c53030" stroke-width="1.5" stroke-dasharray="6 4"/>
+<text x="304" y="236" font-size="12" font-weight="bold" fill="#c53030" text-anchor="start">Public subnets 10.40.0-1.0/24</text>
+<text x="304" y="254" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">NAT only — nothing else is placed here,</text>
+<text x="304" y="271" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">auto-assign public IP disabled</text>
+<rect x="680" y="232" width="190" height="50" rx="10" fill="#ffffff" stroke="#a0aec0" stroke-width="1.5"/>
+<rect x="680" y="232" width="6" height="50" rx="3" fill="#2b6cb0"/>
+<text x="694" y="254" font-size="14" font-weight="bold" fill="#1f2933" text-anchor="start">NAT Gateway</text>
+<text x="694" y="273" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">only path to the internet</text>
+<rect x="290" y="310" width="600" height="585" rx="8" fill="#f4fbf6" stroke="#2f855a" stroke-width="1.5" stroke-dasharray="6 4"/>
+<text x="304" y="331" font-size="12" font-weight="bold" fill="#2f855a" text-anchor="start">Private subnets 10.40.16.0/20 · 10.40.32.0/20</text>
+<rect x="310" y="350" width="180" height="92" rx="10" fill="#ffffff" stroke="#a0aec0" stroke-width="1.5"/>
+<rect x="310" y="350" width="6" height="92" rx="3" fill="#2b6cb0"/>
+<text x="324" y="372" font-size="14" font-weight="bold" fill="#1f2933" text-anchor="start">Internal ALB</text>
+<text x="324" y="391" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">SG: customer CIDRs only</text>
+<text x="324" y="408" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">HTTP 80 or HTTPS 443</text>
+<text x="324" y="425" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">access logs → S3</text>
+<rect x="310" y="470" width="180" height="92" rx="10" fill="#ffffff" stroke="#a0aec0" stroke-width="1.5"/>
+<rect x="310" y="470" width="6" height="92" rx="3" fill="#2f855a"/>
+<text x="324" y="492" font-size="14" font-weight="bold" fill="#1f2933" text-anchor="start">Test client (EC2)</text>
+<text x="324" y="511" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">SSM Session Manager only</text>
+<text x="324" y="528" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">no SSH key, no public IP</text>
+<text x="324" y="545" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">IMDSv2, encrypted disk</text>
+<rect x="530" y="345" width="345" height="230" rx="10" fill="#ffffff" stroke="#a0aec0" stroke-width="1.5"/>
+<rect x="530" y="345" width="6" height="230" rx="3" fill="#c05621"/>
+<text x="546" y="367" font-size="13" font-weight="bold" fill="#1f2933" text-anchor="start">ECS Fargate service · 2–6 tasks</text>
+<text x="546" y="385" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">CPU autoscaling · auto-rollback on failed deploy</text>
+<rect x="548" y="398" width="150" height="160" rx="10" fill="#fffaf0" stroke="#dd6b20" stroke-width="1.5"/>
+<text x="558" y="418" font-size="13" font-weight="bold" fill="#1f2933" text-anchor="start">Agent task (AZ a)</text>
+<text x="558" y="437" font-size="11.5" font-weight="normal" fill="#52606d" text-anchor="start">FastAPI + agent loop</text>
+<text x="558" y="453" font-size="11.5" font-weight="normal" fill="#52606d" text-anchor="start">tools: KB search,</text>
+<text x="558" y="469" font-size="11.5" font-weight="normal" fill="#52606d" text-anchor="start">  create ticket</text>
+<text x="558" y="485" font-size="11.5" font-weight="normal" fill="#52606d" text-anchor="start">UID 10001, RO root FS</text>
+<text x="558" y="501" font-size="11.5" font-weight="normal" fill="#52606d" text-anchor="start">all Linux caps dropped</text>
+<text x="558" y="517" font-size="11.5" font-weight="normal" fill="#52606d" text-anchor="start">secrets fetched at</text>
+<text x="558" y="533" font-size="11.5" font-weight="normal" fill="#52606d" text-anchor="start">  runtime (task role)</text>
+<rect x="710" y="398" width="150" height="160" rx="10" fill="#fffaf0" stroke="#dd6b20" stroke-width="1.5"/>
+<text x="720" y="418" font-size="13" font-weight="bold" fill="#1f2933" text-anchor="start">Agent task (AZ b)</text>
+<text x="720" y="437" font-size="11.5" font-weight="normal" fill="#52606d" text-anchor="start">FastAPI + agent loop</text>
+<text x="720" y="453" font-size="11.5" font-weight="normal" fill="#52606d" text-anchor="start">tools: KB search,</text>
+<text x="720" y="469" font-size="11.5" font-weight="normal" fill="#52606d" text-anchor="start">  create ticket</text>
+<text x="720" y="485" font-size="11.5" font-weight="normal" fill="#52606d" text-anchor="start">UID 10001, RO root FS</text>
+<text x="720" y="501" font-size="11.5" font-weight="normal" fill="#52606d" text-anchor="start">all Linux caps dropped</text>
+<text x="720" y="517" font-size="11.5" font-weight="normal" fill="#52606d" text-anchor="start">secrets fetched at</text>
+<text x="720" y="533" font-size="11.5" font-weight="normal" fill="#52606d" text-anchor="start">  runtime (task role)</text>
+<rect x="310" y="600" width="565" height="92" rx="10" fill="#ffffff" stroke="#a0aec0" stroke-width="1.5"/>
+<rect x="310" y="600" width="6" height="92" rx="3" fill="#2b6cb0"/>
+<text x="324" y="622" font-size="14" font-weight="bold" fill="#1f2933" text-anchor="start">VPC endpoints — AWS APIs never leave the AWS network</text>
+<text x="324" y="641" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">Interface: ecr.api · ecr.dkr · logs · secretsmanager · ssm · ssmmessages · ec2messages</text>
+<text x="324" y="658" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">Gateway: S3 (policy: ECR image layers only) · DynamoDB (policy: tickets table only)</text>
+<text x="324" y="675" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">SG: 443 from VPC CIDR only</text>
+<rect x="310" y="712" width="565" height="170" rx="10" fill="#ffffff" stroke="#a0aec0" stroke-width="1.5"/>
+<rect x="310" y="712" width="6" height="170" rx="3" fill="#b7791f"/>
+<text x="324" y="734" font-size="14" font-weight="bold" fill="#1f2933" text-anchor="start">Network controls (security-group chain)</text>
+<text x="324" y="753" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">customer CIDRs ──▶ ALB :80/443 ──▶ tasks :8080   (tasks accept traffic from ALB SG only)</text>
+<text x="324" y="770" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">tasks egress: TCP 443 only (VPC endpoints + LLM API via NAT)</text>
+<text x="324" y="787" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">test client: no inbound rules; egress to VPC CIDR only</text>
+<text x="324" y="804" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">default security group: all rules removed</text>
+<text x="324" y="821" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">no ECS Exec / SSH into containers · no internet-facing load balancer</text>
+<text x="324" y="838" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">flow logs capture accepted + rejected traffic for audit</text>
+<rect x="945" y="180" width="415" height="72" rx="10" fill="#ffffff" stroke="#a0aec0" stroke-width="1.5"/>
+<rect x="945" y="180" width="6" height="72" rx="3" fill="#b7791f"/>
+<text x="959" y="202" font-size="14" font-weight="bold" fill="#1f2933" text-anchor="start">AWS Secrets Manager</text>
+<text x="959" y="221" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">llm-api-key · client-api-key (encrypted with CMK)</text>
+<text x="959" y="238" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">resource policy: ONLY the task role can read values</text>
+<rect x="945" y="262" width="415" height="52" rx="10" fill="#ffffff" stroke="#a0aec0" stroke-width="1.5"/>
+<rect x="945" y="262" width="6" height="52" rx="3" fill="#b7791f"/>
+<text x="959" y="284" font-size="14" font-weight="bold" fill="#1f2933" text-anchor="start">AWS KMS customer-managed key</text>
+<text x="959" y="303" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">annual auto-rotation · encrypts secrets, table, logs, SNS, images</text>
+<rect x="945" y="324" width="415" height="52" rx="10" fill="#ffffff" stroke="#a0aec0" stroke-width="1.5"/>
+<rect x="945" y="324" width="6" height="52" rx="3" fill="#c05621"/>
+<text x="959" y="346" font-size="14" font-weight="bold" fill="#1f2933" text-anchor="start">DynamoDB · tickets table</text>
+<text x="959" y="365" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">CMK encryption · point-in-time recovery · task role: PutItem only</text>
+<rect x="945" y="386" width="415" height="52" rx="10" fill="#ffffff" stroke="#a0aec0" stroke-width="1.5"/>
+<rect x="945" y="386" width="6" height="52" rx="3" fill="#c05621"/>
+<text x="959" y="408" font-size="14" font-weight="bold" fill="#1f2933" text-anchor="start">Amazon ECR · agent image repository</text>
+<text x="959" y="427" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">immutable tags · scan on push · CMK · keeps last 30 images</text>
+<rect x="945" y="448" width="415" height="88" rx="10" fill="#ffffff" stroke="#a0aec0" stroke-width="1.5"/>
+<rect x="945" y="448" width="6" height="88" rx="3" fill="#2f855a"/>
+<text x="959" y="470" font-size="14" font-weight="bold" fill="#1f2933" text-anchor="start">Amazon CloudWatch</text>
+<text x="959" y="489" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">Logs: app JSON + flow logs, 365 days, CMK</text>
+<text x="959" y="506" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">13 log metric filters (LLM errors, latency, tokens…)</text>
+<text x="959" y="523" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">12 alarms · dashboard · 5 saved Logs Insights queries</text>
+<rect x="945" y="546" width="415" height="52" rx="10" fill="#ffffff" stroke="#a0aec0" stroke-width="1.5"/>
+<rect x="945" y="546" width="6" height="52" rx="3" fill="#2f855a"/>
+<text x="959" y="568" font-size="14" font-weight="bold" fill="#1f2933" text-anchor="start">SNS alarm topic (CMK)</text>
+<text x="959" y="587" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">→ on-call email / pager integration</text>
+<rect x="945" y="608" width="415" height="52" rx="10" fill="#ffffff" stroke="#a0aec0" stroke-width="1.5"/>
+<rect x="945" y="608" width="6" height="52" rx="3" fill="#b7791f"/>
+<text x="959" y="630" font-size="14" font-weight="bold" fill="#1f2933" text-anchor="start">S3 · ALB access logs</text>
+<text x="959" y="649" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">SSE · public access blocked · TLS-only policy · lifecycle</text>
+<rect x="945" y="670" width="415" height="130" rx="10" fill="#ffffff" stroke="#a0aec0" stroke-width="1.5"/>
+<rect x="945" y="670" width="6" height="130" rx="3" fill="#b7791f"/>
+<text x="959" y="692" font-size="14" font-weight="bold" fill="#1f2933" text-anchor="start">IAM (least privilege)</text>
+<text x="959" y="711" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">execution role: pull this image, write this log group</text>
+<text x="959" y="728" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">task role: read 2 secrets, PutItem on 1 table</text>
+<text x="959" y="745" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">github-deploy: OIDC, one repo + protected env</text>
+<text x="959" y="762" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">platform-admin · operator · auditor (MFA)</text>
+<text x="959" y="779" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">nobody human can read secret values</text>
+<line x1="925" y1="216" x2="925" y2="646" stroke="#2b6cb0" stroke-width="3" stroke-dasharray="2 4"/>
+<line x1="925" y1="216" x2="943" y2="216" stroke="#2b6cb0" stroke-width="2"/>
+<line x1="925" y1="288" x2="943" y2="288" stroke="#2b6cb0" stroke-width="2"/>
+<line x1="925" y1="350" x2="943" y2="350" stroke="#2b6cb0" stroke-width="2"/>
+<line x1="925" y1="412" x2="943" y2="412" stroke="#2b6cb0" stroke-width="2"/>
+<line x1="925" y1="492" x2="943" y2="492" stroke="#2b6cb0" stroke-width="2"/>
+<line x1="925" y1="572" x2="943" y2="572" stroke="#2b6cb0" stroke-width="2"/>
+<line x1="925" y1="634" x2="943" y2="634" stroke="#2b6cb0" stroke-width="2"/>
+<text x="940" y="560" font-size="11" fill="#2b6cb0" text-anchor="middle" transform="rotate(-90 940 560)">private AWS network</text>
+<rect x="20" y="350" width="205" height="92" rx="10" fill="#f2f0fb" stroke="#6b46c1" stroke-width="1.5"/>
+<rect x="20" y="350" width="6" height="92" rx="3" fill="#c05621"/>
+<text x="34" y="372" font-size="14" font-weight="bold" fill="#1f2933" text-anchor="start">Customer users &amp; apps</text>
+<text x="34" y="391" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">corporate network / VPN</text>
+<text x="34" y="408" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">send X-API-Key header</text>
+<rect x="20" y="470" width="205" height="92" rx="10" fill="#f2f0fb" stroke="#6b46c1" stroke-width="1.5"/>
+<rect x="20" y="470" width="6" height="92" rx="3" fill="#2f855a"/>
+<text x="34" y="492" font-size="14" font-weight="bold" fill="#1f2933" text-anchor="start">Customer operators</text>
+<text x="34" y="511" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">SSO + MFA → operator role</text>
+<text x="34" y="528" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">SSM port-forwarding</text>
+<rect x="20" y="640" width="205" height="92" rx="10" fill="#f2f0fb" stroke="#6b46c1" stroke-width="1.5"/>
+<rect x="20" y="640" width="6" height="92" rx="3" fill="#c05621"/>
+<text x="34" y="662" font-size="14" font-weight="bold" fill="#1f2933" text-anchor="start">GitHub Actions (CI/CD)</text>
+<text x="34" y="681" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">OIDC → deploy role</text>
+<text x="34" y="698" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">no stored AWS keys</text>
+<text x="34" y="715" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">approval gate: 'production'</text>
+<polyline points="225,396 310,396" fill="none" stroke="#2d3748" stroke-width="2" marker-end="url(#arr)"/>
+<circle cx="267" cy="380" r="10" fill="#c05621"/>
+<text x="267" y="384" font-size="12" font-weight="bold" fill="#ffffff" text-anchor="middle">1</text>
+<text x="240" y="416" font-size="12" font-weight="bold" fill="#2d3748" text-anchor="start">request</text>
+<polyline points="490,396 548,440" fill="none" stroke="#2d3748" stroke-width="2" marker-end="url(#arr)"/>
+<text x="500" y="462" font-size="12" font-weight="bold" fill="#2d3748" text-anchor="start">:8080</text>
+<circle cx="512" cy="480" r="10" fill="#c05621"/>
+<text x="512" y="484" font-size="12" font-weight="bold" fill="#ffffff" text-anchor="middle">2</text>
+<polyline points="785,398 785,282" fill="none" stroke="#2d3748" stroke-width="2" marker-end="url(#arr)"/>
+<circle cx="800" cy="318" r="10" fill="#c05621"/>
+<text x="800" y="322" font-size="12" font-weight="bold" fill="#ffffff" text-anchor="middle">3</text>
+<text x="814" y="322" font-size="12" font-weight="bold" fill="#2d3748" text-anchor="start">LLM call</text>
+<polyline points="795,232 795,194" fill="none" stroke="#2d3748" stroke-width="2" marker-end="url(#arr)"/>
+<polyline points="830,166 930,120" fill="none" stroke="#2d3748" stroke-width="2" marker-end="url(#arr)"/>
+<text x="892" y="160" font-size="12" font-weight="bold" fill="#2d3748" text-anchor="start">TLS 1.2+</text>
+<polyline points="620,558 620,600" fill="none" stroke="#2d3748" stroke-width="2" marker-end="url(#arr)"/>
+<circle cx="622" cy="582" r="10" fill="#c05621"/>
+<text x="622" y="586" font-size="12" font-weight="bold" fill="#ffffff" text-anchor="middle">4</text>
+<text x="644" y="586" font-size="12" font-weight="bold" fill="#2d3748" text-anchor="start">AWS API calls</text>
+<polyline points="875,646 923,646" fill="none" stroke="#2d3748" stroke-width="2" marker-end="url(#arr)"/>
+<polyline points="225,516 310,516" fill="none" stroke="#2d3748" stroke-width="2" marker-end="url(#arr)"/>
+<circle cx="250" cy="500" r="10" fill="#c05621"/>
+<text x="250" y="504" font-size="12" font-weight="bold" fill="#ffffff" text-anchor="middle">5</text>
+<text x="264" y="504" font-size="12" font-weight="bold" fill="#2d3748" text-anchor="start">SSM</text>
+<polyline points="400,470 400,442" fill="none" stroke="#2d3748" stroke-width="2" marker-end="url(#arr)"/>
+<text x="408" y="461" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">smoke test</text>
+<polyline points="122,732 122,925 1150,925 1150,802" fill="none" stroke="#2d3748" stroke-width="2" stroke-dasharray="7 5" marker-end="url(#arr)"/>
+<circle cx="300" cy="925" r="10" fill="#c05621"/>
+<text x="300" y="929" font-size="12" font-weight="bold" fill="#ffffff" text-anchor="middle">6</text>
+<text x="316" y="920" font-size="12" font-weight="bold" fill="#2d3748" text-anchor="start">release: push image to ECR, register task definition, update ECS service (AWS control plane — never through the VPC)</text>
+<text x="20" y="90" font-size="13" font-weight="bold" fill="#1f2933" text-anchor="start">Ownership after hand-over</text>
+<rect x="20" y="102" width="14" height="14" rx="3" fill="#2b6cb0"/>
+<text x="42" y="114" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">Customer platform team</text>
+<rect x="20" y="122" width="14" height="14" rx="3" fill="#2f855a"/>
+<text x="42" y="134" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">Customer operations / on-call</text>
+<rect x="20" y="142" width="14" height="14" rx="3" fill="#c05621"/>
+<text x="42" y="154" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">Application team (agent)</text>
+<rect x="20" y="162" width="14" height="14" rx="3" fill="#b7791f"/>
+<text x="42" y="174" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">Customer security</text>
+<rect x="20" y="182" width="14" height="14" rx="3" fill="#6b46c1"/>
+<text x="42" y="194" font-size="12" font-weight="normal" fill="#52606d" text-anchor="start">External vendor</text>
+<text x="20" y="228" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start" font-style="italic">Numbered arrows = request &amp; release</text>
+<text x="20" y="244" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start" font-style="italic">flows (see docs/architecture.md)</text>
+</svg>

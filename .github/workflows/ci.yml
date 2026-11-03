@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  agent:
+    name: Agent - lint & tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: agent/requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - run: ruff check app tests && ruff format --check app tests
+      - run: pytest -q
+        env:
+          AWS_ACCESS_KEY_ID: testing
+          AWS_SECRET_ACCESS_KEY: testing
+          AWS_DEFAULT_REGION: us-east-1
+
+  infra:
+    name: Terraform - fmt, validate, security tests, lint, scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~1.10"
+      - name: fmt
+        run: terraform fmt -recursive -check infra
+      - name: validate (customer-sim, bootstrap)
+        run: |
+          for d in infra/environments/customer-sim infra/bootstrap; do
+            terraform -chdir=$d init -backend=false -input=false
+            terraform -chdir=$d validate
+          done
+      - name: plan-time security tests (mocked AWS, no credentials)
+        run: |
+          terraform -chdir=infra/modules/secure-agent-platform init -input=false
+          terraform -chdir=infra/modules/secure-agent-platform test
+      - uses: terraform-linters/setup-tflint@v4
+      - name: tflint
+        run: for d in infra/modules/secure-agent-platform infra/environments/customer-sim infra/bootstrap; do (cd $d && tflint); done
+      - name: checkov
+        run: pipx run checkov -d infra --framework terraform --quiet --compact
+
+  security:
+    name: Secret scan, shell lint, image build & scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # scan the full history, not just the last commit
+      - name: gitleaks (secrets in code or history)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: shellcheck
+        run: shellcheck -x -e SC1091,SC2155 scripts/*.sh
+      - name: build image
+        run: docker build -t agent:ci agent
+      - name: trivy image scan (fail on CRITICAL/HIGH that have a fix)
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:latest \
+            image --exit-code 1 --severity CRITICAL,HIGH --ignore-unfixed agent:ci

@@ -1,0 +1,6 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Known-fake values used only in tests and local docker-compose"
+regexes = ['''local-dev-key-0123456789abcdef0123''']

@@ -1,0 +1,14 @@
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /agent
+    schedule: { interval: weekly }
+  - package-ecosystem: docker
+    directory: /agent
+    schedule: { interval: weekly }
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+  - package-ecosystem: terraform
+    directory: /infra/environments/customer-sim
+    schedule: { interval: monthly }

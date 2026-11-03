@@ -1,0 +1,380 @@
+# Operational Runbook — AI Support Agent
+
+**Deliverable 4 of 6** · Requirement 6
+
+> **Audience:** customer operations / on-call engineers and the platform team.
+> **Rule of thumb:** every procedure ends with a **Verify** step. If Verify fails, escalate (§11). Do not improvise in production.
+
+| | |
+|---|---|
+| Service | `acme-support-agent` (substitute your `name` everywhere below) |
+| Region / account | `us-east-1` / customer account |
+| Dashboard | CloudWatch → Dashboards → `acme-support-agent` |
+| Alarms topic | SNS `acme-support-agent-alarms` |
+| Logs | `/ecs/acme-support-agent` (app), `/vpc/acme-support-agent/flow-logs` |
+| Code / IaC | this repository: `agent/`, `infra/`, `scripts/` |
+
+### Procedure index
+
+| ID | Procedure | Who |
+|---|---|---|
+| §1 | Prerequisites and access | everyone |
+| RB-INSTALL | First-time installation | platform admin |
+| RB-00 | Health check (start of shift / any alert) | operator |
+| RB-01 … RB-09 | Alarm responses | operator |
+| RB-10 / 11 / 12 | Secret rotation and suspected compromise | operator (+ security) |
+| RB-20 … RB-24 | Deploy, roll back, configure, scale, allow a new client network | operator / app team / platform |
+| RB-30 | Smoke test | operator |
+| RB-40 | Security incident: containment | operator + security |
+| RB-50 / 51 | Backup, restore, disaster recovery | platform admin |
+| §9 | Maintenance calendar | ops lead |
+| §10 | Teardown | platform admin |
+| §11 | Escalation and contacts | everyone |
+
+---
+
+## 1. Prerequisites and access
+
+**Tools on the operator laptop:** AWS CLI v2, [Session Manager plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html), `jq`, `curl`, Terraform ≥ 1.10 (platform admin only), Docker (releases from a laptop only).
+
+**Assume the right role** (through your SSO permission set, or a profile like this):
+
+```ini
+# ~/.aws/config
+[profile agent-operator]
+source_profile = <your-sso-or-base-profile>
+role_arn       = arn:aws:iam::<ACCOUNT_ID>:role/acme-support-agent-operator
+mfa_serial     = arn:aws:iam::<ACCOUNT_ID>:mfa/<you>
+region         = us-east-1
+```
+
+```bash
+export AWS_PROFILE=agent-operator
+aws sts get-caller-identity          # must show ...:assumed-role/acme-support-agent-operator/...
+```
+
+All `scripts/*.sh` read settings from `terraform output`. Operators who do not run Terraform export them once instead (values are in the hand-over sheet, KT §8):
+
+```bash
+export AWS_REGION=us-east-1 CLUSTER=acme-support-agent SERVICE=acme-support-agent \
+       TASK_FAMILY=acme-support-agent LOG_GROUP=/ecs/acme-support-agent \
+       LLM_SECRET_ARN=arn:aws:secretsmanager:... CLIENT_SECRET_ARN=arn:aws:secretsmanager:... \
+       ALB_DNS=internal-acme-support-agent-alb-....elb.amazonaws.com ALB_PORT=80 \
+       TEST_CLIENT_ID=i-0123456789abcdef0
+```
+
+---
+
+## RB-INSTALL — First-time installation (about 30 minutes)
+
+Run as the **platform admin**, or as an account administrator for the very first run.
+
+1. **Create the Terraform state bucket (once per account).**
+   ```bash
+   cd infra/bootstrap
+   terraform init && terraform apply          # note the output: state_bucket
+   ```
+2. **Configure the environment.**
+   ```bash
+   cd ../environments/customer-sim
+   cp backend.hcl.example backend.hcl                # set bucket = <state_bucket>
+   cp terraform.tfvars.example terraform.tfvars      # set alarm_email; keep llm_provider = "mock" for now
+   terraform init -backend-config=backend.hcl
+   ```
+3. **Create the image registry first** (the service needs an image to start).
+   ```bash
+   terraform apply -target=module.platform.aws_ecr_repository.agent -target=module.platform.aws_ecr_lifecycle_policy.agent
+   ```
+4. **Build and push the first image.**
+   ```bash
+   export AWS_REGION=us-east-1
+   export ECR_REPO_URL=$(aws ecr describe-repositories --repository-names acme-support-agent --query 'repositories[0].repositoryUri' --output text)
+   TAG=v1-$(git rev-parse --short=12 HEAD)
+   PUSH_ONLY=1 ../../../scripts/deploy.sh "$TAG"
+   ```
+5. **Create everything else.** Review the plan: about 120 resources, no deletions.
+   ```bash
+   terraform apply -var image_tag="$TAG"
+   ```
+6. **Confirm the alarm email.** Click the link in the AWS SNS confirmation email.
+7. **Set secret values.** You need the LLM API key from the customer's vendor account.
+   ```bash
+   ../../../scripts/set-secrets.sh        # paste the LLM key at the hidden prompt; copy the client key shown ONCE
+   ```
+8. **Smoke test with the offline mock model** (proves network, IAM, secrets, logging and the tool path at zero LLM cost):
+   ```bash
+   ../../../scripts/smoke-test.sh         # all checks PASS
+   ```
+9. **Switch to the real model.** Set `llm_provider = "anthropic"` in `terraform.tfvars`, `terraform apply`, then from the repo root run `SKIP_BUILD=1 scripts/deploy.sh "$TAG"` so the new task-definition revision rolls out. Run RB-30 again; the answer is now generated by the model.
+10. **(Optional) Enable CI releases.** Set `github_repository = "<owner>/<repo>"`, `terraform apply`. In GitHub: Settings → Environments → `production` → add *Required reviewers*; Settings → Variables → add `AWS_DEPLOY_ROLE_ARN` (output `role_arns.github_deploy`), `AWS_REGION`, `ECS_CLUSTER`, `ECS_SERVICE`, `TASK_FAMILY`, `ECR_REPO_URL`.
+11. **Record evidence** for hand-over: dashboard screenshot, smoke-test output, `terraform output role_arns` (see `docs/evidence/README.md`).
+
+---
+
+## RB-00 — Health check (start of shift, or first step for any alert)
+
+```bash
+scripts/status.sh
+```
+
+Healthy looks like this: `running == desired` (≥ 2); one deployment with `rolloutState = COMPLETED`; no recent "unhealthy" or "stopped" events; no alarms firing. Then open the dashboard and check row 1 (green) and row 2 (LLM errors ≈ 0).
+
+---
+
+## Alarm responses
+
+Each response follows the same order: **Confirm → Diagnose → Fix → Verify → Close**. Note the alarm, time and actions in the incident ticket.
+
+### RB-01 — `P1-no-healthy-targets` / `P1-running-tasks-below-min` (service down or degraded)
+
+**Diagnose**
+```bash
+scripts/status.sh          # read "Stopped tasks ... and why" and "Recent service events"
+```
+
+| Stopped reason / event | Likely cause | Fix |
+|---|---|---|
+| `CannotPullContainerError` | Image tag missing in ECR, or an ECR/S3 endpoint problem | Roll back (RB-21). Check `aws ec2 describe-vpc-endpoints --query 'VpcEndpoints[].[ServiceName,State]' --output table`; all must be `available`. |
+| `ResourceInitializationError ... logs` | CloudWatch Logs endpoint or execution-role problem | Check the endpoint state (above) and recent IAM changes in CloudTrail. Escalate to platform. |
+| `Essential container exited`, exit code 1 | App crash on start-up | `scripts/logs.sh` and look for the first `ERROR`. Usually a bad config or release → roll back (RB-21). |
+| `Task failed ELB health checks` | App started but `/health` not answering | Same as above. If a deploy is in progress, the circuit breaker will roll back automatically; watch `scripts/status.sh`. |
+| `OutOfMemoryError` / exit 137 | Memory exhausted | Raise `task_memory` (RB-22) or lower `MAX_CONCURRENT_REQUESTS`. |
+
+**Fix:** if a deploy happened in the last hour, **roll back first, investigate second** (RB-21). Otherwise force fresh tasks:
+```bash
+aws ecs update-service --cluster $CLUSTER --service $SERVICE --force-new-deployment >/dev/null
+aws ecs wait services-stable --cluster $CLUSTER --services $SERVICE
+```
+**Verify:** RB-00 is healthy and RB-30 passes. The alarm returns to OK within about 5 minutes.
+
+### RB-02 — `P1-alb-5xx` (users receiving server errors)
+
+**Diagnose:** Logs Insights → saved query `recent-errors`. Group by `status`:
+
+| Status | Meaning | Go to |
+|---|---|---|
+| 502 + `llm_call` `outcome=error` | LLM vendor failing | RB-03 |
+| 503 + `auth_unavailable` or secret errors | Secrets cannot be loaded | RB-04 |
+| 500 with an `exception` field | Application bug | Roll back if recent release (RB-21); else hand to app team with `request_id`s |
+| 502/503/504 from the ALB with no app log | No healthy target or timeout | RB-01; for 504, check `P2-latency-p95` (RB-05) |
+
+**Verify:** the 5xx count returns to 0 on the dashboard (row 1).
+
+### RB-03 — `P1-llm-errors` (model calls failing)
+
+**Diagnose:** find the error type:
+```bash
+aws logs start-query --log-group-name $LOG_GROUP --start-time $(date -d '-30 min' +%s) --end-time $(date +%s) \
+  --query-string 'filter event="llm_call" and outcome="error" | stats count(*) by error' \
+  --query queryId --output text   # then: aws logs get-query-results --query-id <id>
+```
+(Or run the same query in the console.)
+
+| `error` | Cause | Fix |
+|---|---|---|
+| `AuthenticationError` / `PermissionDeniedError` | Key revoked, expired or wrong | Rotate in a new valid key (RB-10). Check with the vendor-account owner whether it was revoked deliberately. |
+| `RateLimitError` | Vendor quota or rate limit | Short-term: lower `max_tasks` or `MAX_CONCURRENT_REQUESTS` (RB-22). Long-term: request a quota increase from the vendor. |
+| `APIConnectionError` / `APITimeoutError` | Network path or vendor outage | Check the NAT gateway: `aws ec2 describe-nat-gateways --filter Name=tag:Name,Values=$SERVICE-nat-* --query 'NatGateways[].State'`. Check the vendor status page. |
+| `InternalServerError` / overloaded | Vendor-side incident | Wait; inform users. If prolonged and approved, switch `llm_model` to an alternative model (RB-22). |
+| `BadRequestError` | Model ID retired, or request too large | Check `llm_model` is still offered by the vendor; fix and release. |
+
+**Verify:** `LLMErrors` is 0 for 10 minutes and RB-30 passes.
+
+### RB-04 — `P1-secret-access-failures`
+
+The app is serving cached secrets. It will fail completely if a task restarts or a key rotates, so act now.
+
+1. **Endpoint:** `aws ec2 describe-vpc-endpoints --filters Name=service-name,Values=com.amazonaws.$AWS_REGION.secretsmanager --query 'VpcEndpoints[].State'` should be `available`.
+2. **KMS key enabled?** `aws kms describe-key --key-id alias/$SERVICE --query 'KeyMetadata.KeyState'` should be `Enabled`. `PendingDeletion` → **escalate to security immediately**; cancel with `aws kms cancel-key-deletion` (platform admin).
+3. **Secret has a value?** `aws secretsmanager describe-secret --secret-id $LLM_SECRET_ARN --query 'VersionIdsToStages'` must contain `AWSCURRENT`. Missing → re-run `scripts/set-secrets.sh`.
+4. **Policy drift?** CloudTrail → Event history → filter `PutResourcePolicy`, `PutRolePolicy`, `DeleteRolePolicy` in the last 24 h. Unexpected change → `terraform plan` (platform admin) shows the drift; `terraform apply` restores it.
+
+**Verify:** `GET /ready` returns 200 (RB-30) and the alarm returns to OK.
+
+### RB-05 — `P2-latency-p95` / `P2-cpu-high` / `P2-memory-high`
+
+1. Dashboard row 2: is LLM latency up (vendor slowness) or only end-to-end latency (our saturation)?
+2. Vendor slowness → nothing to fix on our side; watch it, and inform users if it lasts more than 1 hour.
+3. Saturation: if running tasks equal `max_tasks`, raise `max_tasks` (RB-23). If `CapacityRejections` > 0, users are getting 429s; raise `max_tasks` or `MAX_CONCURRENT_REQUESTS`.
+4. Memory high with flat traffic → possible leak. Force a new deployment (RB-01 fix) and open an app-team ticket.
+
+### RB-06 — `P2-token-budget` (cost spike)
+
+1. Saved query `token-usage-by-hour`: is it a gradual rise (adoption) or a spike?
+2. Spike plus `IterationLimitHits` > 0 → the agent is looping. Hand to the app team with sample `request_id`s.
+3. Spike plus many requests from one source (ALB access logs, client IP) → possible abuse. Consider rotating the client key (RB-11) or RB-40.
+4. Legitimate growth → agree a new `hourly_token_budget` with the budget owner and apply it (RB-22).
+
+### RB-07 — `P2-auth-failures`
+
+1. Saved query `auth-failures`: `missing_key` usually means a misconfigured client; `invalid_key` means a wrong or old key.
+2. Was a client-key rotation finished recently (RB-11)? Then a consumer missed the new key. Give them the new key; do **not** restore the old one.
+3. Sustained `invalid_key` from an unknown source (ALB access logs → client IP) → treat as an attack: RB-40.
+
+### RB-08 — `P2-tool-errors` (ticket creation failing)
+
+1. `scripts/logs.sh` and look for `tool_call` with `outcome=error` and its `error` type.
+2. `AccessDeniedException` → IAM or endpoint-policy drift (`terraform plan`). `ResourceNotFoundException` → table missing (RB-51). `ProvisionedThroughputExceeded` is unlikely (on-demand); check for a DynamoDB service event in AWS Health.
+3. **Verify:** RB-30 with the message *"I want a human, ticket please"* returns `create_support_ticket` in `tool_calls`.
+
+### RB-09 — `P2-rejected-tool-calls` (possible prompt injection)
+
+The model asked for a tool that does not exist. IAM limits what the agent can do, so there is no immediate data risk, but this is an attack signal.
+
+1. Get the `request_id` from the logs (`tool_call` with `outcome=rejected_unknown_tool`).
+2. Inform customer security. Conversation text is not logged by default. If security approves, temporarily set `LOG_CONVERSATION_CONTENT=true` (RB-22) to capture samples, and turn it **off** again afterwards.
+3. If repeated from one client, rotate that client's key (RB-11) or apply RB-40.
+
+---
+
+## Secret operations
+
+### RB-10 — Rotate the LLM API key (every 90 days, or on demand)
+
+1. Vendor console: create a **new** key. Keep the old key active for now.
+2. `scripts/rotate-llm-key.sh` → paste the new key at the hidden prompt. The script waits about 5½ minutes for the cache TTL and checks `LLMErrors`.
+3. `scripts/smoke-test.sh` → all PASS.
+4. Vendor console: **revoke the old key.**
+5. Record the rotation date in the maintenance log.
+
+**If step 2 reports errors:** the new key is bad. Fix it and re-run the script; the old key still works because it has not been revoked yet.
+
+### RB-11 — Rotate the client API key (every 90 days, or when a consumer leaves)
+
+1. `scripts/rotate-client-key.sh start` → copy the new key (shown once) and deliver it to each consumer through the customer's secret-sharing channel. **Both keys work now.**
+2. Watch dashboard row 3 (`AuthFailures`) until every consumer has switched. Agree a deadline, typically 1–7 days.
+3. `scripts/rotate-client-key.sh finish` → the old key stops working within 5 minutes.
+4. **Verify:** RB-30 with the new key passes; `AuthFailures` stays flat.
+
+### RB-12 — Suspected secret compromise
+
+1. **LLM key:** revoke it in the vendor console **immediately** (the agent goes down; that is acceptable). Then RB-10 with a fresh key.
+2. **Client key:** `scripts/rotate-client-key.sh start`, then `finish` **immediately** (no overlap). Distribute the new key only to verified consumers.
+3. CloudTrail: search `GetSecretValue` on the secret ARNs for the last 30 days. Any principal other than the task role is a security incident (escalate; RB-40).
+4. Note: no human role can read values. A compromise implies a leak from a consumer, or a compromised task.
+
+---
+
+## Changes
+
+### RB-20 — Deploy a new version
+
+**Preferred:** GitHub → Actions → *Deploy* → *Run workflow* on `main`, then an approver approves the `production` environment.
+
+**From a laptop** (app team or operator with push rights):
+```bash
+scripts/deploy.sh                 # builds the current commit, pushes, scans, rolls out, waits
+```
+The script refuses images with CRITICAL vulnerabilities, prints the rollback command, and fails loudly if ECS rolled back automatically.
+**Verify:** RB-30 passes; dashboard 5xx stays at 0 for 15 minutes.
+
+### RB-21 — Roll back
+
+```bash
+scripts/rollback.sh                          # to the previous task-definition revision
+scripts/rollback.sh acme-support-agent:12    # or to a specific known-good revision
+```
+Images are immutable, so a revision always means exactly the same code. **Verify:** RB-30 passes.
+
+### RB-22 — Change configuration (model, limits, log settings)
+
+Non-secret configuration lives in Terraform (`compute.tf`, environment list), for example `llm_model`, `llm_provider`, `task_cpu`/`task_memory`, `MAX_CONCURRENT_REQUESTS`, `LOG_CONVERSATION_CONTENT`.
+
+1. Change the variable or env value in a pull request; CI must pass.
+2. `terraform apply` (platform admin). This creates a new task-definition revision but **does not** roll it out (the service ignores task-definition drift on purpose).
+3. Roll it out: `SKIP_BUILD=1 scripts/deploy.sh <currently-deployed-tag>`. The script copies the latest revision, which includes the change.
+4. **Verify:** RB-30.
+
+### RB-23 — Scale
+
+Autoscaling is automatic between `min_tasks` and `max_tasks`. To change the limits, set `min_tasks` / `max_tasks` in `terraform.tfvars` and `terraform apply`. Each task handles about 20 concurrent chats; LLM rate limits usually bind before CPU does.
+
+### RB-24 — Allow a new client network
+
+Add the CIDR (VPN pool, peered VPC) to `allowed_client_cidrs` and `terraform apply`. Routing (VPN, Transit Gateway, peering) is owned by the customer network team. Verify from that network: `curl http://<alb-dns>/health`.
+
+---
+
+## RB-30 — Smoke test
+
+```bash
+scripts/smoke-test.sh            # prompts for the client API key (hidden)
+```
+It opens an SSM tunnel through the private test client (nothing is exposed) and checks: `/health` 200, `/ready` 200, chat without a key returns 401, chat with a key returns 200, and the agent called the knowledge-base tool. **All five must PASS.**
+
+---
+
+## RB-40 — Security incident: containment
+
+Use this for suspected abuse, prompt-injection campaigns, compromised consumers, or a compromised task.
+
+| Step | Action | Who |
+|---|---|---|
+| 1 | **Cut off callers** (fastest, keeps evidence): `scripts/rotate-client-key.sh start && scripts/rotate-client-key.sh finish`. Do not distribute the new key yet. | Operator |
+| 2 | **Cut off the model** if the LLM key may be exposed: revoke it in the vendor console. | Vendor-account owner |
+| 3 | **Stop the service** if the task itself may be compromised: `aws application-autoscaling register-scalable-target --service-namespace ecs --resource-id service/$CLUSTER/$SERVICE --scalable-dimension ecs:service:DesiredCount --min-capacity 0 --max-capacity 0` then `aws ecs update-service --cluster $CLUSTER --service $SERVICE --desired-count 0` | Platform admin |
+| 4 | **Preserve evidence:** logs are retained 365 days. Export the relevant window: `aws logs create-export-task` to a forensics bucket. Note task IDs from `scripts/status.sh`. | Security |
+| 5 | Investigate with the auditor role: app logs, flow logs (unexpected destinations), ALB access logs, CloudTrail. | Security |
+| 6 | Recover: fix, release (RB-20), restore scaling (`terraform apply` resets min/max), issue new keys (RB-10/11), RB-30. | App team / ops |
+| 7 | Post-incident review within 5 business days. | Ops lead |
+
+---
+
+## RB-50 — Backup and restore (tickets)
+
+* **What is backed up:** the tickets table, with point-in-time recovery (continuous, 35 days). Everything else is rebuilt from code (Terraform plus the image in ECR) or is non-critical (logs are retained, not restored).
+* **Restore a table to a point in time** (new table; never overwrite):
+  ```bash
+  aws dynamodb restore-table-to-point-in-time --source-table-name acme-support-agent-tickets \
+    --target-table-name acme-support-agent-tickets-restore-$(date +%Y%m%d%H%M) \
+    --restore-date-time 2026-11-03T14:00:00Z \
+    --sse-specification-override Enabled=true,SSEType=KMS,KMSMasterKeyId=alias/acme-support-agent
+  ```
+  The customer data team copies the needed items back, or the platform admin repoints the app to the restored table (a Terraform change).
+* **Verify:** item count on the restored table (`aws dynamodb describe-table ... --query 'Table.ItemCount'`; updates about every 6 h) or a sample `get-item` by the data team.
+
+## RB-51 — Disaster recovery (environment lost or region outage)
+
+| Scenario | RTO | RPO | Procedure |
+|---|---|---|---|
+| Service deleted or broken config | 15 min | 0 | `terraform apply` (state in S3), then RB-20 with the last good tag, then RB-30 |
+| Table deleted | 30 min | ≤ 5 min | Deletion protection is on outside lab mode. Otherwise restore from PITR (RB-50) under the original name, then `terraform import`. |
+| Region outage | ~1 h | Tickets: since last export | New environment folder with `region` changed → RB-INSTALL steps 2–9; push the image to the new region's ECR; set secrets. Cross-region ticket replication is not included (customer decision). |
+
+---
+
+## 9. Maintenance calendar
+
+| Frequency | Task | Owner |
+|---|---|---|
+| Daily | RB-00 at start of shift | On-call |
+| Weekly | Review dashboard, fired alarms, token trend | Ops |
+| Weekly | Merge Dependabot PRs (CI must pass) | App team |
+| Monthly | Rebuild and release the image even with no code change (picks up base-image patches) | App team |
+| Monthly | Check ECR scan findings for the running image | App team |
+| Every 90 days | RB-10 (LLM key) and RB-11 (client key) | Ops |
+| Quarterly | Access review: IAM Access Analyzer, SSO assignments | Security |
+| Quarterly | **Rollback and paging fire-drill** (maintenance window): `SKIP_BUILD=1 scripts/deploy.sh does-not-exist` deploys an image that cannot be pulled. Confirm that ECS rolls back automatically, the script reports it, and the service stays up (RB-30 passes). Then trigger a test page: `aws cloudwatch set-alarm-state --alarm-name $SERVICE-P1-alb-5xx --state-value ALARM --state-reason drill` and confirm the on-call receives it | Ops |
+| Yearly | DR rehearsal (RB-51 row 1 in a sandbox account) | Platform |
+
+Mute alarms during planned work: `aws cloudwatch disable-alarm-actions --alarm-names $(aws cloudwatch describe-alarms --alarm-name-prefix $SERVICE- --query 'MetricAlarms[].AlarmName' --output text)`, then **re-enable** with `enable-alarm-actions`.
+
+## 10. Teardown (lab / decommission)
+
+1. Confirm with the data owner that tickets can be deleted, or export them first.
+2. Lab mode (`lab_mode = true`) already allows clean deletion. For a production decommission, set `lab_mode = true`, `terraform apply`, then continue.
+3. `cd infra/environments/customer-sim && terraform destroy`.
+4. The KMS key enters a 30-day pending-deletion window (cancellable). Secrets are deleted immediately in lab mode.
+5. Optional: remove the state bucket (empty all object versions first, then `terraform destroy` in `infra/bootstrap`).
+
+## 11. Escalation and contacts
+
+| Level | Who | When | Contact (fill in at hand-over) |
+|---|---|---|---|
+| L1 | On-call operator | All alarms | `<pager rotation>` |
+| L2 | Application team | App bugs, prompt/tool behaviour, releases | `<team channel>` |
+| L2 | Platform team | Network, IAM, Terraform, AWS service issues | `<team channel>` |
+| L3 | Customer security | RB-09, RB-12, RB-40, any KMS or IAM anomaly | `<security hotline>` |
+| Vendor | LLM provider support | Persistent RB-03 vendor-side errors, quota | `<vendor support portal / account id>` |
+| Vendor | AWS Support | AWS service impairment | Console → Support Center |
+| Hypercare | FDE team | First 2 weeks after hand-over | `<FDE contact>` |

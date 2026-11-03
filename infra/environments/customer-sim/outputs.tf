@@ -1,0 +1,14 @@
+output "alb_dns_name" { value = module.platform.alb_dns_name }
+output "alb_listener_port" { value = module.platform.alb_listener_port }
+output "ecr_repository_url" { value = module.platform.ecr_repository_url }
+output "ecs_cluster_name" { value = module.platform.ecs_cluster_name }
+output "ecs_service_name" { value = module.platform.ecs_service_name }
+output "task_definition_family" { value = module.platform.task_definition_family }
+output "app_log_group" { value = module.platform.app_log_group }
+output "llm_api_key_secret_arn" { value = module.platform.llm_api_key_secret_arn }
+output "client_api_key_secret_arn" { value = module.platform.client_api_key_secret_arn }
+output "tickets_table_name" { value = module.platform.tickets_table_name }
+output "dashboard_name" { value = module.platform.dashboard_name }
+output "test_client_instance_id" { value = module.platform.test_client_instance_id }
+output "role_arns" { value = module.platform.role_arns }
+output "region" { value = var.region }

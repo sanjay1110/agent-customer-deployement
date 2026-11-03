@@ -1,0 +1,18 @@
+# Local development only. Uses the offline mock model and in-memory tickets,
+# so no AWS account or LLM API key is needed.
+#   docker compose up --build
+#   curl -s localhost:8080/v1/chat -H "X-API-Key: local-dev-key-0123456789abcdef0123" \
+#        -H "Content-Type: application/json" -d '{"message":"how do I reset my password"}'
+services:
+  agent:
+    build: .
+    ports: ["8080:8080"]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      APP_ENV: local
+      LLM_PROVIDER: mock          # set to "anthropic" and provide LLM_API_KEY via a local .env (gitignored) to use Claude
+      TICKETS_BACKEND: memory
+      CLIENT_API_KEYS: local-dev-key-0123456789abcdef0123

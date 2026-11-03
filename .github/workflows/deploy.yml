@@ -1,0 +1,43 @@
+name: Deploy
+
+# Manual release into the customer environment.
+# - Authenticates to AWS with GitHub OIDC (no stored AWS keys anywhere).
+# - Runs in the "production" GitHub environment: add Required reviewers to that
+#   environment so a customer approver signs off every release.
+# - The IAM role only allows: push to this ECR repo, register task definitions,
+#   update this one ECS service, and pass the two agent roles to ECS.
+#
+# Repository variables to set (Settings > Secrets and variables > Actions > Variables):
+#   AWS_DEPLOY_ROLE_ARN, AWS_REGION, ECS_CLUSTER, ECS_SERVICE, TASK_FAMILY, ECR_REPO_URL
+#   (all come from `terraform output`; none of them are secrets)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: gha-deploy-${{ github.run_id }}
+      - name: Build, push, roll out
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          CLUSTER: ${{ vars.ECS_CLUSTER }}
+          SERVICE: ${{ vars.ECS_SERVICE }}
+          TASK_FAMILY: ${{ vars.TASK_FAMILY }}
+          ECR_REPO_URL: ${{ vars.ECR_REPO_URL }}
+        run: ./scripts/deploy.sh "${GITHUB_SHA::12}"

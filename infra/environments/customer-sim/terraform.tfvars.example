@@ -1,0 +1,14 @@
+# Copy to terraform.tfvars (gitignored) and edit.
+region      = "us-east-1"
+name        = "acme-support-agent"
+owner_tag   = "acme-platform-ops"
+alarm_email = "you@example.com"
+
+# Start with "mock" to prove the platform end-to-end at zero LLM cost, then
+# switch to "anthropic" once the LLM key secret has a value.
+llm_provider = "mock"
+
+lab_mode = true # single NAT + easy destroy. false for a real customer.
+
+# Optional: enable the GitHub Actions deploy role (OIDC)
+# github_repository = "your-github-user/ai-agent-customer-deployment"

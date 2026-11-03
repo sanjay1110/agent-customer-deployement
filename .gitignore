@@ -1,0 +1,28 @@
+# Secrets & local config - NEVER commit
+.env
+.env.*
+*.pem
+*.key
+terraform.tfvars
+*.auto.tfvars
+backend.hcl
+
+# Terraform
+.terraform/
+.terraform.lock.hcl.bak
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
